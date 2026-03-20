@@ -408,34 +408,55 @@ export default function AIContentPlannerApp() {
     }));
   }
 
-  function handleUpload(event) {
+  async function handleUpload(event) {
     const file = event.target.files?.[0];
     if (!file) return;
+
     setUploadedFileName(file.name);
+    setApiError("");
 
-    const isTextLike =
-      file.type.includes("text") ||
-      file.name.endsWith(".md") ||
-      file.name.endsWith(".txt") ||
-      file.name.endsWith(".json") ||
-      file.name.endsWith(".csv");
+    const ext = file.name.toLowerCase().split(".").pop();
 
-    if (!isTextLike) {
-      setExtractedText(
-        `Datoteka "${file.name}" je učitana, ali ova verzija direktno čita tekstualne fajlove (.txt, .md, .csv, .json). Za PDF/DOCX koristi ručno kopiranje sadržaja u polje Tema / bilješke.`
-      );
+    if (["txt", "md", "json", "csv"].includes(ext)) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = typeof reader.result === "string" ? reader.result : "";
+        setExtractedText(result);
+        if (!form.topicTitle && file.name) {
+          updateField("topicTitle", file.name.replace(/\.[^.]+$/, ""));
+        }
+      };
+      reader.readAsText(file, "utf-8");
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      setExtractedText(result);
-      if (!form.topicTitle && file.name) {
-        updateField("topicTitle", file.name.replace(/\.[^.]+$/, ""));
+    if (["pdf", "docx"].includes(ext)) {
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch("/.netlify/functions/extract-document-text", {
+          method: "POST",
+          body: formData,
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data?.error || "Greška pri ekstrakciji dokumenta.");
+        }
+
+        setExtractedText(data.text || "");
+        if (!form.topicTitle && file.name) {
+          updateField("topicTitle", file.name.replace(/\.[^.]+$/, ""));
+        }
+      } catch (error) {
+        setApiError(error.message || "Ne mogu da pročitam dokument.");
       }
-    };
-    reader.readAsText(file, "utf-8");
+      return;
+    }
+
+    setApiError("Podržani formati su TXT, MD, CSV, JSON, PDF i DOCX.");
   }
 
   function handleGeneratePlan() {
@@ -638,13 +659,13 @@ export default function AIContentPlannerApp() {
                   />
                 </Field>
 
-                <Field label="Upload dokumenta" hint={uploadedFileName || "TXT, MD, CSV, JSON"}>
+                <Field label="Upload dokumenta" hint={uploadedFileName || "TXT, MD, CSV, JSON, PDF, DOCX"}>
                   <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600 hover:border-slate-400">
                     <FileText className="h-4 w-4" />
                     <span>{uploadedFileName ? `Učitano: ${uploadedFileName}` : "Izaberi dokument"}</span>
                     <input
                       type="file"
-                      accept=".txt,.md,.csv,.json,text/plain,text/markdown"
+                      accept=".txt,.md,.csv,.json,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                       onChange={handleUpload}
                       className="hidden"
                     />
