@@ -16,7 +16,6 @@ import {
   Library,
   PenTool,
   Filter,
-  Loader2,
   AlertCircle,
   Mail,
   MapPin,
@@ -288,13 +287,6 @@ function generateStructuredDraft(form, extractedText) {
   });
 }
 
-function normalizePosts(payload) {
-  if (!payload) return [];
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload.posts)) return payload.posts;
-  return [];
-}
-
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -377,9 +369,7 @@ export default function AIContentPlannerApp() {
   const [copied, setCopied] = useState(false);
   const [generatedDrafts, setGeneratedDrafts] = useState([]);
   const [activePreview, setActivePreview] = useState("schedule");
-  const [isGenerating, setIsGenerating] = useState(false);
   const [apiError, setApiError] = useState("");
-  const [generationMode, setGenerationMode] = useState("ai");
 
   const schedule = useMemo(() => {
     const days = DAYS_BY_FREQUENCY[form.frequency] || DAYS_BY_FREQUENCY[3];
@@ -432,7 +422,7 @@ export default function AIContentPlannerApp() {
 
     if (!isTextLike) {
       setExtractedText(
-        `Datoteka "${file.name}" je učitana, ali ova verzija direktno čita tekstualne fajlove (.txt, .md, .csv, .json). Za PDF/DOCX koristi backend ekstrakciju ili parser.`
+        `Datoteka "${file.name}" je učitana, ali ova verzija direktno čita tekstualne fajlove (.txt, .md, .csv, .json). Za PDF/DOCX koristi ručno kopiranje sadržaja u polje Tema / bilješke.`
       );
       return;
     }
@@ -448,47 +438,13 @@ export default function AIContentPlannerApp() {
     reader.readAsText(file, "utf-8");
   }
 
-  async function handleGenerateWithAI() {
-    setIsGenerating(true);
-    setApiError("");
-    setGenerationMode("ai");
-
-    try {
-      const response = await fetch("/.netlify/functions/generate-content-plan", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          form,
-          extractedText,
-          schedule,
-          prompt,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Greška pri AI generisanju.");
-      }
-
-      const normalized = normalizePosts(data);
-      if (!normalized.length) {
-        throw new Error("AI odgovor nije vratio validne objave.");
-      }
-
-      setGeneratedDrafts(normalized);
-      setActivePreview("drafts");
-    } catch (error) {
-      setApiError(error.message || "Došlo je do greške.");
-      const fallback = generateStructuredDraft(form, extractedText);
-      setGeneratedDrafts(fallback);
-      setGenerationMode("fallback");
-      setActivePreview("drafts");
-    } finally {
-      setIsGenerating(false);
-    }
+  function handleGeneratePlan() {
+    setApiError(
+      "Prompt Mode je aktivan. Aplikacija generiše plan i draft strukturu bez direktnog AI API poziva. Za finalni copy koristi Prompt tab i ChatGPT."
+    );
+    const fallback = generateStructuredDraft(form, extractedText);
+    setGeneratedDrafts(fallback);
+    setActivePreview("drafts");
   }
 
   async function handleCopyPrompt() {
@@ -503,7 +459,7 @@ export default function AIContentPlannerApp() {
 
   async function handleExport() {
     if (!generatedDrafts.length) {
-      setApiError("Prvo generiši draftove prije izvoza.");
+      setApiError("Prvo generiši plan prije izvoza.");
       return;
     }
 
@@ -547,7 +503,7 @@ export default function AIContentPlannerApp() {
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(18);
-      doc.text(form.topicTitle || "AI Content Plan", margin, y);
+      doc.text(form.topicTitle || "Content Plan", margin, y);
       y += 24;
 
       doc.setFont("helvetica", "normal");
@@ -594,7 +550,7 @@ export default function AIContentPlannerApp() {
     if (form.exportFormat === "DOCX") {
       const children = [
         new Paragraph({
-          children: [new TextRun({ text: form.topicTitle || "AI Content Plan", bold: true, size: 32 })],
+          children: [new TextRun({ text: form.topicTitle || "Content Plan", bold: true, size: 32 })],
         }),
         new Paragraph({
           children: [new TextRun(`Goal: ${form.goal} | Platform: ${form.platform} | Frequency: ${form.frequency}`)],
@@ -633,15 +589,14 @@ export default function AIContentPlannerApp() {
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <div className="mb-2 text-xs uppercase tracking-[0.3em] text-slate-300">
-                Wellbeing Compass · AI Content Planner
+                Wellbeing Compass · Prompt Planner
               </div>
               <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-                Premium content planner sa AI pripremom
+                Content planner bez API billing-a
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 md:text-base">
-                Korisnik unosi dokument ili temu, bira platformu, broj objava sedmično, ton, buyer
-                stage, content pillars, CTA biblioteku i brand voice. Aplikacija priprema strukturu,
-                prompt za AI i draft rasporeda u SaaS interfejsu.
+                Unesi dokument ili temu, definiši cilj, ton i platformu, pa generiši plan,
+                draft strukturu i prompt koji možeš koristiti u ChatGPT-u.
               </p>
             </div>
 
@@ -678,7 +633,7 @@ export default function AIContentPlannerApp() {
                   <input
                     value={form.topicTitle}
                     onChange={(e) => updateField("topicTitle", e.target.value)}
-                    placeholder="npr. Growth Loop za B2B brendove"
+                    placeholder="npr. Awareness vs performance"
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
                   />
                 </Field>
@@ -800,7 +755,7 @@ export default function AIContentPlannerApp() {
                   <input
                     value={form.audience}
                     onChange={(e) => updateField("audience", e.target.value)}
-                    placeholder="npr. osnivači, HR lideri, majke, beauty klijenti..."
+                    placeholder="npr. osnivači, HR lideri, beauty klijenti..."
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
                   />
                 </Field>
@@ -809,7 +764,7 @@ export default function AIContentPlannerApp() {
                   <input
                     value={form.offer}
                     onChange={(e) => updateField("offer", e.target.value)}
-                    placeholder="npr. konsultacije, lead magnet, audit, DM, prijava"
+                    placeholder="npr. konsultacije, audit, prijava, DM"
                     className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-slate-400"
                   />
                 </Field>
@@ -840,7 +795,9 @@ export default function AIContentPlannerApp() {
                   </div>
                   <div>
                     <h2 className="text-lg font-semibold">AI workspace</h2>
-                    <p className="text-sm text-slate-500">Planiraj, generiši, prepiši i pripremi za export.</p>
+                    <p className="text-sm text-slate-500">
+                      Planner, draft generator i prompt priprema bez direktnog API poziva.
+                    </p>
                   </div>
                 </div>
 
@@ -866,7 +823,11 @@ export default function AIContentPlannerApp() {
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <div>{apiError}</div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  Prompt Mode je aktivan. Generiši plan ovdje, a finalni copy razvij kroz Prompt tab u ChatGPT-u.
+                </div>
+              )}
 
               {activePreview === "schedule" && (
                 <div className="space-y-4">
@@ -892,16 +853,20 @@ export default function AIContentPlannerApp() {
                   <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
-                      onClick={handleGenerateWithAI}
-                      disabled={isGenerating}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={handleGeneratePlan}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
                     >
-                      {isGenerating ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Wand2 className="h-4 w-4" />
-                      )}
-                      {isGenerating ? "Generišem..." : "Generate with AI"}
+                      <Wand2 className="h-4 w-4" />
+                      Generate Plan
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActivePreview("prompt")}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 hover:border-slate-300"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Open Prompt
                     </button>
                   </div>
                 </div>
@@ -932,14 +897,13 @@ export default function AIContentPlannerApp() {
                 <div className="space-y-4">
                   {generatedDrafts.length === 0 ? (
                     <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-                      Još nema draftova. Klikni <strong>Generate with AI</strong>.
+                      Još nema draftova. Klikni <strong>Generate Plan</strong>.
                     </div>
                   ) : (
                     <>
                       <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                         <span>
-                          Način generisanja:{" "}
-                          <strong>{generationMode === "ai" ? "AI API" : "Fallback lokalni draft"}</strong>
+                          Način rada: <strong>Prompt + lokalni draft generator</strong>
                         </span>
                         <button
                           type="button"
