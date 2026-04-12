@@ -370,7 +370,7 @@ export default function AIContentPlannerApp() {
   const [generatedDrafts, setGeneratedDrafts] = useState([]);
   const [activePreview, setActivePreview] = useState("schedule");
   const [apiError, setApiError] = useState("");
-
+const [isLoading, setIsLoading] = useState(false);
   const schedule = useMemo(() => {
     const days = DAYS_BY_FREQUENCY[form.frequency] || DAYS_BY_FREQUENCY[3];
     const types = form.contentTypes.length ? form.contentTypes : ["Edukativni"];
@@ -460,31 +460,33 @@ export default function AIContentPlannerApp() {
   }
 
   function handleGeneratePlan() {
+    async function handleGeneratePlan() {
+  setIsLoading(true);
+  setApiError("");
+  try {
+    const res = await fetch("/.netlify/functions/generate-content-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    const data = await res.json();
+    if (!res.ok || !Array.isArray(data.posts)) {
+      throw new Error(data?.error || "API nije vratio validan odgovor.");
+    }
+    setGeneratedDrafts(data.posts);
+    setActivePreview("drafts");
+  } catch (err) {
     setApiError(
-      "Prompt Mode je aktivan. Aplikacija generiše plan i draft strukturu bez direktnog AI API poziva. Za finalni copy koristi Prompt tab i ChatGPT."
+      (err?.message || "Greška pri pozivu API-ja.") +
+        " — Prikazan je lokalni draft kao fallback."
     );
     const fallback = generateStructuredDraft(form, extractedText);
     setGeneratedDrafts(fallback);
     setActivePreview("drafts");
+  } finally {
+    setIsLoading(false);
   }
-
-  async function handleCopyPrompt() {
-    try {
-      await navigator.clipboard.writeText(prompt);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch {
-      setCopied(false);
-    }
-  }
-
-  async function handleExport() {
-    if (!generatedDrafts.length) {
-      setApiError("Prvo generiši plan prije izvoza.");
-      return;
-    }
-
-    const filenameBase = slugify(form.topicTitle || "content-plan");
+}
 
     if (form.exportFormat === "CSV") {
       const headers = [
@@ -857,17 +859,18 @@ export default function AIContentPlannerApp() {
                       <div
                         key={`${item.day}-${idx}`}
                         className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-semibold text-slate-900">{item.day}</div>
-                            <div className="mt-1 text-sm text-slate-600">{item.contentType}</div>
-                          </div>
-                          <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
-                            {item.format}
-                          </div>
-                        </div>
-                      </div>
+                  {apiError && (
+  <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+    <div>{apiError}</div>
+  </div>
+)}
+{isLoading && (
+  <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+    Pozivam AI, generišem plan...
+  </div>
+)}
+
                     ))}
                   </div>
 
@@ -890,15 +893,16 @@ export default function AIContentPlannerApp() {
                       Open Prompt
                     </button>
                   </div>
-                </div>
-              )}
+                <button
+  type="button"
+  onClick={handleGeneratePlan}
+  disabled={isLoading}
+  className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+>
+  <Wand2 className="h-4 w-4" />
+  {isLoading ? "Generišem..." : "Generate Plan"}
+</button>
 
-              {activePreview === "prompt" && (
-                <div className="space-y-4">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap text-xs leading-6 text-slate-700">
-                      {prompt}
-                    </pre>
                   </div>
 
                   <div className="flex flex-wrap gap-3">
